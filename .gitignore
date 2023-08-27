@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2023 Sage Hane <sage@sagehane.com>
+#
+# SPDX-License-Identifier: CC0-1.0
+
+zig-cache/
+zig-out/
