@@ -36,7 +36,7 @@ pub fn Board(comptime dimensions: Vec2) type {
         //points: [packed_length]u8 = [1]u8{0} ** packed_length,
 
         pub fn placeStone(self: *Self, coord: Vec2, colour: Colour) BoardError!void {
-            if (self.getPoint(coord) != .empty)
+            if (self.getPoint(coord).isColour())
                 return error.AlreadyOccupied;
 
             const point = colour.toPoint();
@@ -64,22 +64,6 @@ pub fn Board(comptime dimensions: Vec2) type {
             }
         }
 
-        /// Returns a board representing the territory of each player.
-        pub fn getTerritory(self: Self) Self {
-            var territory = self;
-
-            for (0..width) |x| for (0..height) |y| {
-                const coord = Vec2{ .x = @intCast(x), .y = @intCast(y) };
-                if (territory.getPoint(coord) != .empty) continue;
-
-                const owner = territory.getOwner(coord);
-                if (owner.isColour())
-                    territory.fillTerritory(coord, owner);
-            };
-
-            return territory;
-        }
-
         /// The first index contains black's score and the second contains white's.
         pub fn getScores(self: Self) [2]u16 {
             const territory = self.getTerritory();
@@ -89,7 +73,7 @@ pub fn Board(comptime dimensions: Vec2) type {
                 const coord = Vec2{ .x = @intCast(x), .y = @intCast(y) };
                 const point = territory.getPoint(coord);
 
-                if (!point.isColour()) continue;
+                if (point == .empty) continue;
 
                 scores[@intFromEnum(point.toColour())] += 1;
             };
@@ -97,33 +81,57 @@ pub fn Board(comptime dimensions: Vec2) type {
             return scores;
         }
 
-        /// Must be called on a coordinate containing an empty point.
-        /// Converts `.empty` into `.debug` and returns owner of the territory.
-        /// Returns `.empty` if neither players are adjacent to the territory.
-        /// Returns `.debug` if both players are adjacent to the territory.
-        fn getOwner(self: *Self, coord: Vec2) Point {
-            var owner = self.getPoint(coord);
-            if (owner.isColour()) return owner;
+        /// Returns a board representing the territory of each player.
+        pub fn getTerritory(self: Self) Self {
+            var territory = self;
+            var checked = std.StaticBitSet(length).initEmpty();
 
-            self.setPoint(coord, .debug);
+            for (0..width) |x| for (0..height) |y| {
+                const coord = Vec2{ .x = @intCast(x), .y = @intCast(y) };
+                if (territory.getPoint(coord).isColour() or
+                    checked.isSet(coordToIndex(coord))) continue;
+
+                const owner: Point = @enumFromInt((territory.getOwnerMask(coord, &checked) +% 1) -| 1);
+                if (owner.isColour())
+                    territory.fillTerritory(coord, owner.toColour());
+            };
+
+            return territory;
+        }
+
+        /// Returns `0b00` if neither players influence the territory.
+        /// Returns `0b01` if Black own the territory.
+        /// Returns `0b10` if White own the territory.
+        /// Returns `0b11` if both players influence the territory.
+        fn getOwnerMask(
+            self: *Self,
+            coord: Vec2,
+            checked: *std.StaticBitSet(length),
+        ) u2 {
+            const point = self.getPoint(coord);
+            if (point.isColour()) return @intFromEnum(point);
+
+            checked.set(coordToIndex(coord));
+            var owner_flag: u2 = 0;
 
             var buffer: [4]Vec2 = undefined;
             for (getAdjacents(coord, &buffer)) |adj_coord|
-                if (self.getPoint(adj_coord) != .debug) {
-                    const adj_owner = self.getOwner(adj_coord);
-                    owner = @enumFromInt(@intFromEnum(owner) | @intFromEnum(adj_owner));
+                if (!checked.isSet(coordToIndex(adj_coord))) {
+                    const adj_owner = self.getOwnerMask(adj_coord, checked);
+
+                    owner_flag |= adj_owner;
                 };
 
-            return owner;
+            return owner_flag;
         }
 
-        fn fillTerritory(self: *Self, coord: Vec2, owner: Point) void {
-            self.setPoint(coord, owner);
+        fn fillTerritory(self: *Self, coord: Vec2, colour: Colour) void {
+            self.setPoint(coord, colour.toPoint());
 
             var buffer: [4]Vec2 = undefined;
             for (getAdjacents(coord, &buffer)) |adj_coord| {
-                if (!self.getPoint(adj_coord).isColour())
-                    self.fillTerritory(adj_coord, owner);
+                if (self.getPoint(adj_coord) == .empty)
+                    self.fillTerritory(adj_coord, colour);
             }
         }
 

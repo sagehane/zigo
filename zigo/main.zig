@@ -28,14 +28,12 @@ pub const Colour = enum(u1) {
 };
 
 pub const Point = enum(u2) {
-    empty,
-    black,
-    white,
-    // Currently used only for territory counting and should be removed.
-    debug,
+    empty = 0,
+    black = 1,
+    white = 2,
 
     pub inline fn isColour(self: Point) bool {
-        return (self == .black or self == .white);
+        return self != .empty;
     }
 
     pub inline fn getOpposite(self: Point) Point {
@@ -53,7 +51,6 @@ pub const Point = enum(u2) {
             .empty => '.',
             .black => 'B',
             .white => 'W',
-            .debug => '?',
         };
     }
 };

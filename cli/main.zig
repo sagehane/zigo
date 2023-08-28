@@ -22,7 +22,7 @@ pub fn main() !void {
     var game = zigo.defaultGame(allocator);
     defer game.deinit();
 
-    while (game.winner == .undecided) {
+    while (game.winner == null) {
         try stderr.print("{s}'s turn: ", .{colourToString(game.player)});
         const len = try stdin.read(&buffer);
 
@@ -30,11 +30,10 @@ pub fn main() !void {
     }
 
     try game.board.printAscii(stderr);
-    const msg = switch (game.winner) {
+    const msg = switch (game.winner.?) {
+        .empty => "The game ended in a draw!",
         .black => "Black won the game!",
         .white => "White won the game!",
-        .draw => "The game ended in a draw!",
-        else => unreachable,
     };
     try stderr.print("\n\n{s}\n", .{msg});
     try stderr.print("\n\n{s}\n", .{msg});

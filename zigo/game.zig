@@ -23,17 +23,6 @@ const MoveError = error{
     BoardRepetition,
 };
 
-const Winner = enum(u2) {
-    undecided,
-    black,
-    white,
-    draw,
-
-    inline fn fromColour(colour: Colour) Winner {
-        return @enumFromInt(@as(u2, @intFromEnum(colour)) + 1);
-    }
-};
-
 // TODO: Make the dimensions configurable at runtime.
 pub fn Game(comptime dimensions: Vec2) type {
     const BoardType = Board(dimensions);
@@ -92,7 +81,7 @@ pub fn Game(comptime dimensions: Vec2) type {
         player: Colour = .black,
         // TODO: Consider signed integer.
         komi: u16 = 0,
-        winner: Winner = .undecided,
+        winner: ?Point = null,
 
         pub fn init(allocator: Allocator, komi: u16) Self {
             return Self{ .history = History.init(allocator, .{}, .black), .komi = komi };
@@ -111,13 +100,14 @@ pub fn Game(comptime dimensions: Vec2) type {
         }
 
         /// The game ends when passing results in a move repetition.
+        /// `.empty` represents a draw.
         pub fn pass(self: *Self) void {
             self.insertHistory(self.board) catch return {
                 var scores = self.board.getScores();
                 scores[1] +|= self.getKomi();
 
                 if (scores[0] == scores[1])
-                    self.winner = .draw
+                    self.winner = .empty
                 else if (scores[0] > scores[1])
                     self.winner = .black
                 else
@@ -127,7 +117,7 @@ pub fn Game(comptime dimensions: Vec2) type {
         }
 
         pub inline fn forfeit(self: *Self, forfeiter: Colour) void {
-            self.winner = Winner.fromColour(forfeiter.getOpposite());
+            self.winner = forfeiter.getOpposite().toPoint();
         }
 
         pub inline fn getKomi(self: Self) u16 {
