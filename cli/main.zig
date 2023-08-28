@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const zigo = @import("zigo");
-const GameType = zigo.DefaultGame;
 
 pub fn main() !void {
     const stdin = std.io.getStdIn().reader();
@@ -36,7 +35,6 @@ pub fn main() !void {
         .white => "White won the game!",
     };
     try stderr.print("\n\n{s}\n", .{msg});
-    try stderr.print("\n\n{s}\n", .{msg});
     try printScores(game, stderr);
 }
 
@@ -47,7 +45,7 @@ fn colourToString(colour: zigo.Colour) []const u8 {
     };
 }
 
-fn printScores(game: GameType, writer: anytype) !void {
+fn printScores(game: anytype, writer: anytype) !void {
     const scores = game.board.getScores();
     try writer.print("Black: {}\nWhite: {} (+{} komi)\n", .{
         scores[0],
@@ -56,14 +54,14 @@ fn printScores(game: GameType, writer: anytype) !void {
     });
 }
 
-fn handleInput(game: *GameType, input: []const u8, writer: anytype) !void {
+fn handleInput(game: anytype, input: []const u8, writer: anytype) !void {
     const trimmed = std.mem.trim(u8, input, "\x0a ");
 
     const help_message =
         \\  Commands:
         \\    help                  Print this message
         \\    print                 Print the state of the board
-        \\    count                 Count the territory of both players
+        \\    territory             Show the territory of both players
         \\    pass                  Pass the turn to the other player
         \\    play [A..Z][1..26]    Make a play at a given coord, such as "b2"
         \\    forfeit               Forfeit the game
@@ -74,8 +72,10 @@ fn handleInput(game: *GameType, input: []const u8, writer: anytype) !void {
     } else if (std.mem.eql(u8, trimmed, "print")) {
         try writer.writeAll("\n\n");
         try game.board.printAscii(writer);
-    } else if (std.mem.eql(u8, trimmed, "count")) {
+    } else if (std.mem.eql(u8, trimmed, "territory")) {
         try writer.writeAll("\n\n");
+        try game.board.getTerritory().printAscii(writer);
+        try writer.writeAll("\n");
         try printScores(game.*, writer);
     } else if (std.mem.eql(u8, trimmed, "pass")) {
         game.pass();
