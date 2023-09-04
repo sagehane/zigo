@@ -34,7 +34,7 @@ pub fn Game(comptime dimensions: Vec2) type {
         /// Needed to detect board repetition.
         const History = struct {
             const prefix_len = 4;
-            const IndexSize = u16;
+            const IndexSize = u32;
             // TODO: Consider using std.SegmentedList?
             const List = std.ArrayList([prefix_len]IndexSize);
             const initial_item = [1]IndexSize{0} ** prefix_len;
