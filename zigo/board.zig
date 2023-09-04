@@ -21,6 +21,7 @@ pub fn Board(comptime dimensions: Vec2) type {
     const width: u8 = dimensions.x;
     const height: u8 = dimensions.y;
     const length: u16 = @as(u16, width) * height;
+    const packed_length = (length >> 2) + @as(u16, @intFromBool(length & 0b11 != 0));
 
     if (width == 0 or height == 0)
         @compileError("The width or height cannot be 0.");
@@ -28,12 +29,7 @@ pub fn Board(comptime dimensions: Vec2) type {
     return struct {
         const Self = @This();
 
-        // TODO: Consider using something like ArrayList?
-        points: [length]Point = [1]Point{.empty} ** length,
-
-        // TODO
-        // Pack into u8 using `length >> 2 + @intFromBool(length & 0b11 > 0)`
-        //points: [packed_length]u8 = [1]u8{0} ** packed_length,
+        points: [packed_length]u8 = [1]u8{0} ** packed_length,
 
         pub fn placeStone(self: *Self, coord: Vec2, colour: Colour) BoardError!void {
             if (self.getPoint(coord).isColour())
@@ -205,11 +201,16 @@ pub fn Board(comptime dimensions: Vec2) type {
         }
 
         pub inline fn getPoint(self: Self, coord: Vec2) Point {
-            return self.points[coordToIndex(coord)];
+            const index = coordToIndex(coord);
+            const offset: u3 = @truncate(index << 1);
+            return @enumFromInt(@as(u2, @truncate(self.points[index >> 2] >> offset)));
         }
 
         inline fn setPoint(self: *Self, coord: Vec2, point: Point) void {
-            self.points[coordToIndex(coord)] = point;
+            const index = coordToIndex(coord);
+            const offset: u3 = @truncate(index << 1);
+            self.points[index >> 2] &= ~@shlExact(@as(u8, 0b11), offset);
+            self.points[index >> 2] |= @shlExact(@as(u8, @intFromEnum(point)), offset);
         }
 
         // Branchless might be slower?
