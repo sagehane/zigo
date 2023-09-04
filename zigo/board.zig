@@ -21,7 +21,7 @@ pub fn Board(comptime dimensions: Vec2) type {
     const width: u8 = dimensions.x;
     const height: u8 = dimensions.y;
     const length: u16 = @as(u16, width) * height;
-    const packed_length = (length >> 2) + @as(u16, @intFromBool(length & 0b11 != 0));
+    const packed_length = (length >> 2) + @as(u16, @intFromBool(@as(u2, @truncate(length)) != 0));
 
     if (width == 0 or height == 0)
         @compileError("The width or height cannot be 0.");
@@ -46,12 +46,12 @@ pub fn Board(comptime dimensions: Vec2) type {
             for (adjacents, 0..) |adj_coord, i| {
                 if (self.getPoint(adj_coord) == point.getOpposite() and
                     board_copy.floodFillCheck(adj_coord))
-                    capture_flag |= @as(u4, 1) << @intCast(i);
+                    capture_flag |= @shlExact(@as(u4, 1), @intCast(i));
             }
 
             if (capture_flag != 0) {
                 for (adjacents, 0..) |adj_coord, i|
-                    if (capture_flag & (@as(u4, 1) << @intCast(i)) != 0)
+                    if (capture_flag & @shlExact(@as(u4, 1), @intCast(i)) != 0)
                         self.captureGroup(adj_coord);
             } else {
                 board_copy = self.*;
