@@ -18,9 +18,9 @@ const BoardError = error{AlreadyOccupied};
 
 // TODO: Make the dimensions configurable at runtime.
 pub fn Board(comptime dimensions: Vec2) type {
-    const width: u16 = dimensions.x;
-    const height: u16 = dimensions.y;
-    const length = width * height;
+    const width: u8 = dimensions.x;
+    const height: u8 = dimensions.y;
+    const length: u16 = @as(u16, width) * height;
 
     if (width == 0 or height == 0)
         @compileError("The width or height cannot be 0.");
@@ -243,7 +243,7 @@ pub fn Board(comptime dimensions: Vec2) type {
 
         inline fn coordToIndex(coord: Vec2) u16 {
             assert(inRange(coord));
-            return width * coord.y + coord.x;
+            return @as(u16, width) * coord.y + coord.x;
         }
 
         // TODO: Consider using some buffer.
@@ -261,14 +261,15 @@ pub fn Board(comptime dimensions: Vec2) type {
             try writer.writeAll("\n");
 
             for (0..height) |i| {
-                const row = height - @as(u8, @intCast(i));
+                const y = height - @as(u8, @intCast(i)) - 1;
                 const mark_str = " {d:>" ++ .{'1' + pad} ++ "}";
 
-                try writer.print(mark_str, .{row});
-                for (self.points[width * (row - 1) .. width * (row - 1) + width]) |point| {
+                try writer.print(mark_str, .{y + 1});
+                for (0..width) |x| {
+                    const point = self.getPoint(.{ .x = @intCast(x), .y = y });
                     try writer.print(" {c}", .{point.toChar()});
                 }
-                try writer.print(mark_str ++ "\n", .{row});
+                try writer.print(mark_str ++ "\n", .{y + 1});
             }
 
             try writer.writeAll(pad_str);

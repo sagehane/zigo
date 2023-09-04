@@ -62,17 +62,21 @@ pub fn Game(comptime dimensions: Vec2) type {
                 var index: IndexSize = 0;
 
                 // Keep iterating on the board and adding entries.
-                for (board.points) |point| {
-                    const i = @intFromEnum(point);
+                for (0..dimensions.x) |x|
+                    for (0..dimensions.y) |y| {
+                        const i = @intFromEnum(board.getPoint(.{
+                            .x = @intCast(x),
+                            .y = @intCast(y),
+                        }));
 
-                    const item_ptr = &self.list.items[index][i];
-                    if (item_ptr.* == 0) {
-                        item_ptr.* = @intCast(self.list.items.len);
-                        try self.list.append(initial_item);
-                    }
+                        const item_ptr = &self.list.items[index][i];
+                        if (item_ptr.* == 0) {
+                            item_ptr.* = @intCast(self.list.items.len);
+                            try self.list.append(initial_item);
+                        }
 
-                    index = self.list.items[index][i];
-                }
+                        index = self.list.items[index][i];
+                    };
 
                 // Note, this uses 0 and 1 for black and white.
                 const i = @intFromEnum(player);
