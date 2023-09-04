@@ -14,13 +14,14 @@ const Board = @import("board.zig").Board;
 
 pub const DefaultGame = Game(.{ .x = 19, .y = 19 });
 
-pub fn evenGame(allocator: Allocator) DefaultGame {
-    return DefaultGame.init(allocator, 7);
+pub fn evenGame(allocator: Allocator) error{OutOfMemory}!DefaultGame {
+    return try DefaultGame.init(allocator, 7);
 }
 
 const MoveError = error{
     AlreadyOccupied,
     BoardRepetition,
+    OutOfMemory,
 };
 
 // TODO: Make the dimensions configurable at runtime.
@@ -40,10 +41,16 @@ pub fn Game(comptime dimensions: Vec2) type {
 
             list: List,
 
-            fn init(allocator: Allocator, board: BoardType, player: Colour) History {
+            fn init(allocator: Allocator, board: BoardType, player: Colour) error{OutOfMemory}!History {
                 var history = History{ .list = List.init(allocator) };
-                history.list.append(initial_item) catch unreachable;
-                history.insert(board, player.getOpposite()) catch unreachable;
+                history.list.append(initial_item) catch |err| {
+                    if (err == error.OutOfMemory) return error.OutOfMemory;
+                    unreachable;
+                };
+                history.insert(board, player.getOpposite()) catch |err| {
+                    if (err == error.OutOfMemory) return error.OutOfMemory;
+                    unreachable;
+                };
                 return history;
             }
 
@@ -51,7 +58,7 @@ pub fn Game(comptime dimensions: Vec2) type {
                 self.list.deinit();
             }
 
-            fn insert(self: *History, board: BoardType, player: Colour) error{BoardRepetition}!void {
+            fn insert(self: *History, board: BoardType, player: Colour) error{ BoardRepetition, OutOfMemory }!void {
                 var index: IndexSize = 0;
 
                 // Keep iterating on the board and adding entries.
@@ -61,7 +68,7 @@ pub fn Game(comptime dimensions: Vec2) type {
                     const item_ptr = &self.list.items[index][i];
                     if (item_ptr.* == 0) {
                         item_ptr.* = @intCast(self.list.items.len);
-                        self.list.append(initial_item) catch unreachable;
+                        try self.list.append(initial_item);
                     }
 
                     index = self.list.items[index][i];
@@ -83,8 +90,8 @@ pub fn Game(comptime dimensions: Vec2) type {
         komi: u16 = 0,
         winner: ?Point = null,
 
-        pub fn init(allocator: Allocator, komi: u16) Self {
-            return Self{ .history = History.init(allocator, .{}, .black), .komi = komi };
+        pub fn init(allocator: Allocator, komi: u16) error{OutOfMemory}!Self {
+            return Self{ .history = try History.init(allocator, .{}, .black), .komi = komi };
         }
 
         pub fn deinit(self: *Self) void {
@@ -128,7 +135,7 @@ pub fn Game(comptime dimensions: Vec2) type {
             return dimensions;
         }
 
-        fn insertHistory(self: *Self, board: BoardType) error{BoardRepetition}!void {
+        fn insertHistory(self: *Self, board: BoardType) error{ BoardRepetition, OutOfMemory }!void {
             try self.history.insert(board, self.player);
         }
     };

@@ -18,7 +18,7 @@ pub fn main() !void {
 
     var buffer: [std.mem.page_size]u8 = undefined;
 
-    var game = zigo.defaultGame(allocator);
+    var game = try zigo.defaultGame(allocator);
     defer game.deinit();
 
     while (game.winner == null) {
@@ -94,6 +94,7 @@ fn handleInput(game: anytype, input: []const u8, writer: anytype) !void {
                     const msg = switch (err) {
                         error.AlreadyOccupied => "\nThe coordinate is already occupied!\n",
                         error.BoardRepetition => "\nBoard repetition detected!\n",
+                        error.OutOfMemory => @panic("\nOut of memory!\n"),
                     };
                     try writer.writeAll(msg);
                 };
