@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: CC0-1.0
 
 const std = @import("std");
+const io = std.io;
+
 const zigo = @import("zigo");
 const Game = zigo.Game;
 
 pub fn main() !void {
-    const stdin = std.io.getStdIn().reader();
-    const stderr = std.io.getStdErr().writer();
+    const stdin = io.getStdIn().reader();
+    const stderr = io.getStdErr().writer();
+    var bw = io.bufferedWriter(stderr);
+    const writer = bw.writer();
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -23,21 +27,23 @@ pub fn main() !void {
     defer game.deinit();
 
     while (game.winner == .undecided) {
-        try stderr.print("{s}'s turn: ", .{colourToString(game.player)});
-        const len = try stdin.read(&buffer);
+        try writer.print("{s}'s turn: ", .{colourToString(game.player)});
+        try bw.flush();
 
-        try handleInput(&game, buffer[0..len], stderr);
+        const len = try stdin.read(&buffer);
+        try handleInput(&game, buffer[0..len], writer);
     }
 
-    try game.board.printAscii(game.board.points, stderr);
+    try game.board.printAscii(game.board.points, writer);
     const msg = switch (game.winner) {
         .black => "Black won the game!",
         .white => "White won the game!",
         .draw => "The game ended in a draw!",
         else => unreachable,
     };
-    try stderr.print("\n\n{s}\n", .{msg});
-    try printScores(game, game.board.getScores(), stderr);
+    try writer.print("\n\n{s}\n", .{msg});
+    try printScores(game, game.board.getScores(), writer);
+    try bw.flush();
 }
 
 fn colourToString(colour: zigo.Colour) []const u8 {
