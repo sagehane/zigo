@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const zigo = @import("zigo");
+const Game = zigo.Game;
 
 pub fn main() !void {
     const stdin = std.io.getStdIn().reader();
@@ -21,21 +22,22 @@ pub fn main() !void {
     var game = try zigo.defaultGame(allocator);
     defer game.deinit();
 
-    while (game.winner == null) {
+    while (game.winner == .undecided) {
         try stderr.print("{s}'s turn: ", .{colourToString(game.player)});
         const len = try stdin.read(&buffer);
 
         try handleInput(&game, buffer[0..len], stderr);
     }
 
-    try game.board.printAscii(stderr);
-    const msg = switch (game.winner.?) {
-        .empty => "The game ended in a draw!",
+    try game.board.printAscii(game.board.points, stderr);
+    const msg = switch (game.winner) {
         .black => "Black won the game!",
         .white => "White won the game!",
+        .draw => "The game ended in a draw!",
+        else => unreachable,
     };
     try stderr.print("\n\n{s}\n", .{msg});
-    try printScores(game, stderr);
+    try printScores(game, game.board.getScores(), stderr);
 }
 
 fn colourToString(colour: zigo.Colour) []const u8 {
@@ -45,8 +47,7 @@ fn colourToString(colour: zigo.Colour) []const u8 {
     };
 }
 
-fn printScores(game: anytype, writer: anytype) !void {
-    const scores = game.board.getScores();
+fn printScores(game: Game, scores: [2]u16, writer: anytype) !void {
     try writer.print("Black: {}\nWhite: {} (+{} komi)\n", .{
         scores[0],
         scores[1],
@@ -54,7 +55,7 @@ fn printScores(game: anytype, writer: anytype) !void {
     });
 }
 
-fn handleInput(game: anytype, input: []const u8, writer: anytype) !void {
+fn handleInput(game: *Game, input: []const u8, writer: anytype) !void {
     const trimmed = std.mem.trim(u8, input, "\x0a ");
 
     const help_message =
@@ -71,12 +72,13 @@ fn handleInput(game: anytype, input: []const u8, writer: anytype) !void {
         try writer.print(help_message, .{});
     } else if (std.mem.eql(u8, trimmed, "print")) {
         try writer.writeAll("\n\n");
-        try game.board.printAscii(writer);
+        try game.board.printAscii(game.board.points, writer);
     } else if (std.mem.eql(u8, trimmed, "territory")) {
         try writer.writeAll("\n\n");
-        try game.board.getTerritory().printAscii(writer);
+        const scores = game.board.getScores();
+        try game.board.printAscii(game.board.copy, writer);
         try writer.writeAll("\n");
-        try printScores(game.*, writer);
+        try printScores(game.*, scores, writer);
     } else if (std.mem.eql(u8, trimmed, "pass")) {
         game.pass();
     } else if (std.mem.eql(u8, trimmed, "forfeit")) {
@@ -87,7 +89,7 @@ fn handleInput(game: anytype, input: []const u8, writer: anytype) !void {
         if (std.fmt.parseInt(u8, arg[1..], 10)) |y| {
             const coord = .{ .x = std.ascii.toUpper(arg[0]) - 'A', .y = y - 1 };
 
-            if (!@TypeOf(game.board).inRange(coord))
+            if (!game.board.inRange(coord))
                 try writer.writeAll("\nInvalid coordinates!\n")
             else {
                 game.play(coord) catch |err| {

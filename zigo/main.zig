@@ -5,10 +5,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const game = @import("game.zig");
-pub const Game = game.Game;
-pub const DefaultGame = game.DefaultGame;
-pub const defaultGame = game.evenGame;
+pub const Game = @import("Game.zig");
+pub const defaultGame = Game.evenGame;
 
 test {
     std.testing.refAllDecls(@This());
@@ -28,12 +26,14 @@ pub const Colour = enum(u1) {
 };
 
 pub const Point = enum(u2) {
-    empty = 0,
-    black = 1,
-    white = 2,
+    empty = 0b00,
+    black = 0b01,
+    white = 0b10,
+    // Meaningless in regular play, used for territory counting
+    debug = 0b11,
 
     pub inline fn isColour(self: Point) bool {
-        return self != .empty;
+        return self != .empty and self != .debug;
     }
 
     pub inline fn getOpposite(self: Point) Point {
@@ -51,6 +51,7 @@ pub const Point = enum(u2) {
             .empty => '.',
             .black => 'B',
             .white => 'W',
+            .debug => '?',
         };
     }
 };
