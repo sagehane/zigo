@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const testing = std.testing;
 
 const zigo = @import("main.zig");
 const Colour = zigo.Colour;
@@ -49,7 +50,7 @@ const History = struct {
 
         // Keep iterating on the board and adding entries.
         for (0..board.width) |x|
-            for (0..board.width) |y| {
+            for (0..board.height) |y| {
                 const i = @intFromEnum(board.getPoint(board.points, .{
                     .x = @intCast(x),
                     .y = @intCast(y),
@@ -123,6 +124,24 @@ pub fn play(self: *Game, coord: Vec2) MoveError!void {
     errdefer @memcpy(self.board.points.items, self.backup.items);
     try self.insertHistory();
     self.player = self.player.getOpposite();
+}
+
+test "play" {
+    const allocator = testing.allocator;
+    {
+        var game = try Game.init(allocator, 4, 3, 0);
+        defer game.deinit();
+
+        try game.play(.{ .x = 0, .y = 1 });
+        try game.play(.{ .x = 3, .y = 1 });
+        try game.play(.{ .x = 1, .y = 0 });
+        try game.play(.{ .x = 2, .y = 0 });
+        try game.play(.{ .x = 1, .y = 2 });
+        try game.play(.{ .x = 2, .y = 2 });
+        try game.play(.{ .x = 2, .y = 1 });
+        try game.play(.{ .x = 1, .y = 1 });
+        try testing.expectError(error.BoardRepetition, game.play(.{ .x = 2, .y = 1 }));
+    }
 }
 
 /// The game ends when passing results in a move repetition.

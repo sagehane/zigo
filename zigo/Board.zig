@@ -137,6 +137,37 @@ pub fn getScores(self: *Board) [2]u16 {
     return scores;
 }
 
+test "getScores" {
+    const allocator = testing.allocator;
+    {
+        var board = try Board.init(allocator, 1, 1);
+        defer board.deinit();
+
+        try std.testing.expectEqual([2]u16{ 0, 0 }, board.getScores());
+    }
+    {
+        var board = try Board.init(allocator, 2, 2);
+        defer board.deinit();
+
+        try std.testing.expectEqual([2]u16{ 0, 0 }, board.getScores());
+    }
+    {
+        var board = try Board.init(allocator, 2, 1);
+        defer board.deinit();
+        board.setPoint(board.points, .{ .x = 0, .y = 0 }, .black);
+
+        try std.testing.expectEqual([2]u16{ 2, 0 }, board.getScores());
+    }
+    {
+        var board = try Board.init(allocator, 2, 2);
+        defer board.deinit();
+        board.setPoint(board.points, .{ .x = 0, .y = 0 }, .black);
+        board.setPoint(board.points, .{ .x = 1, .y = 1 }, .white);
+
+        try std.testing.expectEqual([2]u16{ 1, 1 }, board.getScores());
+    }
+}
+
 /// Modifies `copy` to a value representing the territory of each player.
 fn getTerritory(self: *Board) void {
     self.syncCopy();
