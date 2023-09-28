@@ -19,7 +19,7 @@ const Vec2 = zigo.Vec2;
 const Board = @This();
 
 const BoardError = error{AlreadyOccupied};
-pub const Points = std.ArrayList(u8);
+pub const Points = std.ArrayListUnmanaged(u8);
 
 width: u8,
 height: u8,
@@ -40,13 +40,13 @@ pub fn init(allocator: Allocator, width: u8, height: u8) error{OutOfMemory}!Boar
         .width = width,
         .height = height,
         .points = points,
-        .copy = try points.clone(),
+        .copy = try points.clone(allocator),
     };
 }
 
-pub fn deinit(self: Board) void {
-    self.points.deinit();
-    self.copy.deinit();
+pub fn deinit(self: *Board, allocator: Allocator) void {
+    self.points.deinit(allocator);
+    self.copy.deinit(allocator);
 }
 
 pub fn placeStone(self: *Board, coord: Vec2, colour: Colour) BoardError!void {

@@ -23,29 +23,29 @@ const History = struct {
     const prefix_len = 3;
     const IndexSize = u32;
     // TODO: Consider using std.SegmentedList?
-    const List = std.ArrayList([prefix_len]IndexSize);
+    const List = std.ArrayListUnmanaged([prefix_len]IndexSize);
     const initial_item = [1]IndexSize{0} ** prefix_len;
 
     list: List,
 
     fn init(allocator: Allocator, board: Board, player: Colour) error{OutOfMemory}!History {
-        var history = History{ .list = List.init(allocator) };
-        history.list.append(initial_item) catch |err| {
+        var history = History{ .list = try List.initCapacity(allocator, 0) };
+        history.list.append(allocator, initial_item) catch |err| {
             if (err == error.OutOfMemory) return error.OutOfMemory;
             unreachable;
         };
-        history.insert(board, player.getOpposite()) catch |err| {
+        history.insert(allocator, board, player.getOpposite()) catch |err| {
             if (err == error.OutOfMemory) return error.OutOfMemory;
             unreachable;
         };
         return history;
     }
 
-    fn deinit(self: History) void {
-        self.list.deinit();
+    fn deinit(self: *History, allocator: Allocator) void {
+        self.list.deinit(allocator);
     }
 
-    fn insert(self: *History, board: Board, player: Colour) error{ BoardRepetition, OutOfMemory }!void {
+    fn insert(self: *History, allocator: Allocator, board: Board, player: Colour) error{ BoardRepetition, OutOfMemory }!void {
         var index: IndexSize = 0;
 
         // Keep iterating on the board and adding entries.
@@ -59,7 +59,7 @@ const History = struct {
                 const item_ptr = &self.list.items[index][i];
                 if (item_ptr.* == 0) {
                     item_ptr.* = @intCast(self.list.items.len);
-                    try self.list.append(initial_item);
+                    try self.list.append(allocator, initial_item);
                 }
 
                 index = self.list.items[index][i];
@@ -91,6 +91,7 @@ const Winner = enum(u2) {
     }
 };
 
+allocator: Allocator,
 player: Colour = .black,
 // TODO: Consider signed integer.
 komi: u16 = 0,
@@ -105,17 +106,18 @@ pub fn init(allocator: Allocator, width: u8, height: u8, komi: u16) error{OutOfM
     const board = try Board.init(allocator, width, height);
 
     return Game{
+        .allocator = allocator,
         .komi = komi,
         .board = board,
-        .backup = try board.points.clone(),
+        .backup = try board.points.clone(allocator),
         .history = try History.init(allocator, board, .black),
     };
 }
 
 pub fn deinit(self: *Game) void {
-    self.board.deinit();
-    self.backup.deinit();
-    self.history.deinit();
+    self.board.deinit(self.allocator);
+    self.backup.deinit(self.allocator);
+    self.history.deinit(self.allocator);
 }
 
 pub fn play(self: *Game, coord: Vec2) MoveError!void {
@@ -169,5 +171,5 @@ pub inline fn getKomi(self: Game) u16 {
 }
 
 fn insertHistory(self: *Game) error{ BoardRepetition, OutOfMemory }!void {
-    try self.history.insert(self.board, self.player);
+    try self.history.insert(self.allocator, self.board, self.player);
 }
