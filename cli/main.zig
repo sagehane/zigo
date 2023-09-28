@@ -93,20 +93,22 @@ fn handleInput(game: *Game, input: []const u8, writer: anytype) !void {
         const arg = std.mem.trim(u8, trimmed["play ".len..], " ");
 
         if (std.fmt.parseInt(u8, arg[1..], 10)) |y| {
-            const coord = .{ .x = std.ascii.toUpper(arg[0]) - 'A', .y = y - 1 };
+            if (y != 0) {
+                const coord = .{ .x = std.ascii.toUpper(arg[0]) - 'A', .y = y - 1 };
 
-            if (!game.board.inRange(coord))
-                try writer.writeAll("\nInvalid coordinates!\n")
-            else {
-                game.play(coord) catch |err| {
-                    const msg = switch (err) {
-                        error.AlreadyOccupied => "\nThe coordinate is already occupied!\n",
-                        error.BoardRepetition => "\nBoard repetition detected!\n",
-                        error.OutOfMemory => @panic("\nOut of memory!\n"),
+                if (!game.board.inRange(coord))
+                    try writer.writeAll("\nInvalid coordinates!\n")
+                else {
+                    game.play(coord) catch |err| {
+                        const msg = switch (err) {
+                            error.AlreadyOccupied => "\nThe coordinate is already occupied!\n",
+                            error.BoardRepetition => "\nBoard repetition detected!\n",
+                            error.OutOfMemory => @panic("\nOut of memory!\n"),
+                        };
+                        try writer.writeAll(msg);
                     };
-                    try writer.writeAll(msg);
-                };
-            }
+                }
+            } else try writer.writeAll("\nInvalid coordinates!\n");
         } else |_| try writer.writeAll("\nInvalid coordinates!\n");
     } else try writer.writeAll("Invalid command, type \"help\" for a list of commands");
 
