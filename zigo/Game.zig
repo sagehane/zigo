@@ -12,6 +12,7 @@ const Point = zigo.Point;
 const Vec2 = zigo.Vec2;
 
 const Board = @import("Board.zig");
+const Points = Board.Points;
 
 const Game = @This();
 
@@ -29,15 +30,9 @@ const History = struct {
     list: List,
 
     fn init(allocator: Allocator, board: Board, player: Colour) error{OutOfMemory}!History {
-        var history = History{ .list = try List.initCapacity(allocator, 0) };
-        history.list.append(allocator, initial_item) catch |err| {
-            if (err == error.OutOfMemory) return error.OutOfMemory;
-            unreachable;
-        };
-        history.insert(allocator, board, player.getOpposite()) catch |err| {
-            if (err == error.OutOfMemory) return error.OutOfMemory;
-            unreachable;
-        };
+        var history = History{ .list = try List.initCapacity(allocator, board.getLength() + 1) };
+        history.list.appendAssumeCapacity(initial_item);
+        history.insert(allocator, board, player.getOpposite()) catch unreachable;
         return history;
     }
 
@@ -48,29 +43,41 @@ const History = struct {
     fn insert(self: *History, allocator: Allocator, board: Board, player: Colour) error{ BoardRepetition, OutOfMemory }!void {
         var index: IndexSize = 0;
 
-        // Keep iterating on the board and adding entries.
-        for (0..board.width) |x|
-            for (0..board.height) |y| {
-                const i = @intFromEnum(board.getPoint(board.points, .{
-                    .x = @intCast(x),
-                    .y = @intCast(y),
-                }));
+        // Keep iterating while the `index` has previously been reached.
+        var i: u16 = 0;
+        while (i < board.getLength() - 1) : (i += 1) {
+            const int = board.points.get(i);
 
-                const item_ptr = &self.list.items[index][i];
-                if (item_ptr.* == 0) {
-                    item_ptr.* = @intCast(self.list.items.len);
-                    try self.list.append(allocator, initial_item);
-                }
+            if (self.list.items[index][int] == 0) {
+                self.list.items[index][int] = @intCast(self.list.items.len);
+                index = @intCast(self.list.items.len);
 
-                index = self.list.items[index][i];
-            };
+                break;
+            }
 
-        // Note, this uses 0 and 1 for black and white.
-        const i = @intFromEnum(player);
-        const item_ptr = &self.list.items[index][i];
+            index = self.list.items[index][int];
+        }
 
-        if (item_ptr.* != 0) return error.BoardRepetition;
-        item_ptr.* = std.math.maxInt(IndexSize);
+        // If a new state has been reached, record it.
+        if (i != board.getLength() - 1) {
+            try self.list.appendNTimes(allocator, initial_item, board.getLength() - i - 1);
+
+            for (i + 1..board.getLength() - 1) |j| {
+                const int = board.points.get(@intCast(j));
+                self.list.items[index][int] = index + 1;
+                index += 1;
+            }
+        }
+
+        // The last point maps to the mask of players that have reached the
+        // particular board state.
+        const int = board.points.get(board.getLength() - 1);
+        const player_mask = @shlExact(@as(u2, 1), @intFromEnum(player));
+
+        if (self.list.items[index][int] & player_mask != 0)
+            return error.BoardRepetition;
+
+        self.list.items[index][int] |= player_mask;
     }
 };
 
@@ -99,7 +106,7 @@ winner: Winner = .undecided,
 board: Board,
 // TODO: Remove this by ridding some abstractions.
 /// A backup of the board to be restored in case of move repetition.
-backup: Board.Points,
+backup: Points,
 history: History,
 
 pub fn init(allocator: Allocator, width: u8, height: u8, komi: u16) error{OutOfMemory}!Game {
@@ -131,6 +138,13 @@ pub fn play(self: *Game, coord: Vec2) MoveError!void {
 test "play" {
     const allocator = testing.allocator;
     {
+        var game = try Game.init(allocator, 1, 1, 0);
+        defer game.deinit();
+
+        try game.play(.{ .x = 0, .y = 0 });
+        try testing.expectError(error.BoardRepetition, game.play(.{ .x = 0, .y = 0 }));
+    }
+    {
         var game = try Game.init(allocator, 4, 3, 0);
         defer game.deinit();
 
@@ -160,6 +174,18 @@ pub fn pass(self: *Game) void {
             self.winner = .white;
     };
     self.player = self.player.getOpposite();
+}
+
+test "pass" {
+    const allocator = testing.allocator;
+    {
+        var game = try Game.init(allocator, 1, 1, 0);
+        defer game.deinit();
+
+        game.pass();
+        game.pass();
+        try testing.expectEqual(Winner.draw, game.winner);
+    }
 }
 
 pub inline fn forfeit(self: *Game, forfeiter: Colour) void {

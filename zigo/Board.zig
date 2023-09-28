@@ -66,6 +66,10 @@ pub fn deinit(self: Board, allocator: Allocator) void {
     allocator.free(self.copy.bytes);
 }
 
+pub inline fn getLength(self: Board) u16 {
+    return @as(u16, self.width) * self.height;
+}
+
 pub fn placeStone(self: *Board, coord: Vec2, colour: Colour) BoardError!void {
     if (self.getPoint(self.points, coord).isColour())
         return error.AlreadyOccupied;
@@ -143,13 +147,12 @@ pub fn getScores(self: *Board) [2]u16 {
     self.getTerritory();
     var scores = [2]u16{ 0, 0 };
 
-    for (0..self.width) |x| for (0..self.height) |y| {
-        const coord = Vec2{ .x = @intCast(x), .y = @intCast(y) };
-        const point = self.getPoint(self.copy, coord);
+    for (0..self.getLength()) |i| {
+        const point: Point = @enumFromInt(self.copy.get(@intCast(i)));
 
         if (!point.isColour()) continue;
         scores[@intFromEnum(point.toColour())] += 1;
-    };
+    }
 
     return scores;
 }
