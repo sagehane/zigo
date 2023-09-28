@@ -109,21 +109,21 @@ pub fn init(allocator: Allocator, width: u8, height: u8, komi: u16) error{OutOfM
         .allocator = allocator,
         .komi = komi,
         .board = board,
-        .backup = try board.points.clone(allocator),
+        .backup = .{ .bytes = try allocator.alloc(u8, board.points.bytes.len) },
         .history = try History.init(allocator, board, .black),
     };
 }
 
 pub fn deinit(self: *Game) void {
     self.board.deinit(self.allocator);
-    self.backup.deinit(self.allocator);
+    self.allocator.free(self.backup.bytes);
     self.history.deinit(self.allocator);
 }
 
 pub fn play(self: *Game, coord: Vec2) MoveError!void {
-    @memcpy(self.backup.items, self.board.points.items);
+    @memcpy(self.backup.bytes, self.board.points.bytes);
     try self.board.placeStone(coord, self.player);
-    errdefer @memcpy(self.board.points.items, self.backup.items);
+    errdefer @memcpy(self.board.points.bytes, self.backup.bytes);
     try self.insertHistory();
     self.player = self.player.getOpposite();
 }

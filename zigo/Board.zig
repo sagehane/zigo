@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const DynamicBitSet = std.DynamicBitSet;
 const assert = std.debug.assert;
 const testing = std.testing;
 const expect = testing.expect;
@@ -19,7 +18,25 @@ const Vec2 = zigo.Vec2;
 const Board = @This();
 
 const BoardError = error{AlreadyOccupied};
-pub const Points = std.ArrayListUnmanaged(u8);
+
+pub const Points = struct {
+    bytes: []u8,
+
+    pub inline fn bytesRequired(len: u16) u16 {
+        return (@bitSizeOf(u2) * len + 7) >> 3;
+    }
+
+    pub inline fn get(self: Points, index: u16) u2 {
+        const offset: u3 = @truncate(index << 1);
+        return @truncate(self.bytes[index >> 2] >> offset);
+    }
+
+    inline fn set(self: *Points, index: u16, point: u2) void {
+        const offset: u3 = @truncate(index << 1);
+        self.bytes[index >> 2] &= ~@shlExact(@as(u8, 0b11), offset);
+        self.bytes[index >> 2] |= @shlExact(@as(u8, point), offset);
+    }
+};
 
 width: u8,
 height: u8,
@@ -31,22 +48,22 @@ pub fn init(allocator: Allocator, width: u8, height: u8) error{OutOfMemory}!Boar
     assert(width != 0 and height != 0);
 
     const length: u16 = @as(u16, width) * height;
-    const packed_length = (length >> 2) + @as(u16, @intFromBool(@as(u2, @truncate(length)) != 0));
+    const packed_length = Points.bytesRequired(length);
 
-    var points = try Points.initCapacity(allocator, packed_length);
-    points.appendNTimesAssumeCapacity(0, packed_length);
+    const bytes = try allocator.alloc(u8, packed_length);
+    @memset(bytes, 0);
 
     return .{
         .width = width,
         .height = height,
-        .points = points,
-        .copy = try points.clone(allocator),
+        .points = .{ .bytes = bytes },
+        .copy = .{ .bytes = try allocator.dupe(u8, bytes) },
     };
 }
 
-pub fn deinit(self: *Board, allocator: Allocator) void {
-    self.points.deinit(allocator);
-    self.copy.deinit(allocator);
+pub fn deinit(self: Board, allocator: Allocator) void {
+    allocator.free(self.points.bytes);
+    allocator.free(self.copy.bytes);
 }
 
 pub fn placeStone(self: *Board, coord: Vec2, colour: Colour) BoardError!void {
@@ -54,7 +71,7 @@ pub fn placeStone(self: *Board, coord: Vec2, colour: Colour) BoardError!void {
         return error.AlreadyOccupied;
 
     const point = colour.toPoint();
-    self.setPoint(self.points, coord, point);
+    self.setPoint(&self.points, coord, point);
 
     self.syncCopy();
     var buffer: [4]Vec2 = undefined;
@@ -86,38 +103,38 @@ test "placeStone" {
     // self-capture
     {
         var a = try Board.init(allocator, 1, 1);
-        defer a.deinit();
+        defer a.deinit(allocator);
 
         var b = try Board.init(allocator, 1, 1);
-        defer b.deinit();
+        defer b.deinit(allocator);
         try b.placeStone(.{ .x = 0, .y = 0 }, .black);
 
-        try expectEqualSlices(u8, a.points.items, b.points.items);
+        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
     }
     {
         var a = try Board.init(allocator, 2, 1);
-        defer a.deinit();
+        defer a.deinit(allocator);
 
         var b = try Board.init(allocator, 2, 1);
-        defer b.deinit();
-        b.setPoint(b.points, .{ .x = 0, .y = 0 }, .black);
+        defer b.deinit(allocator);
+        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
         try b.placeStone(.{ .x = 1, .y = 0 }, .black);
 
-        try expectEqualSlices(u8, a.points.items, b.points.items);
+        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
     }
 
     // capture
     {
         var a = try Board.init(allocator, 2, 1);
-        defer a.deinit();
-        a.setPoint(a.points, .{ .x = 1, .y = 0 }, .white);
+        defer a.deinit(allocator);
+        a.setPoint(&a.points, .{ .x = 1, .y = 0 }, .white);
 
         var b = try Board.init(allocator, 2, 1);
-        defer b.deinit();
-        b.setPoint(b.points, .{ .x = 0, .y = 0 }, .black);
+        defer b.deinit(allocator);
+        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
         try b.placeStone(.{ .x = 1, .y = 0 }, .white);
 
-        try expectEqualSlices(u8, a.points.items, b.points.items);
+        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
     }
 }
 
@@ -141,28 +158,28 @@ test "getScores" {
     const allocator = testing.allocator;
     {
         var board = try Board.init(allocator, 1, 1);
-        defer board.deinit();
+        defer board.deinit(allocator);
 
         try std.testing.expectEqual([2]u16{ 0, 0 }, board.getScores());
     }
     {
         var board = try Board.init(allocator, 2, 2);
-        defer board.deinit();
+        defer board.deinit(allocator);
 
         try std.testing.expectEqual([2]u16{ 0, 0 }, board.getScores());
     }
     {
         var board = try Board.init(allocator, 2, 1);
-        defer board.deinit();
-        board.setPoint(board.points, .{ .x = 0, .y = 0 }, .black);
+        defer board.deinit(allocator);
+        board.setPoint(&board.points, .{ .x = 0, .y = 0 }, .black);
 
         try std.testing.expectEqual([2]u16{ 2, 0 }, board.getScores());
     }
     {
         var board = try Board.init(allocator, 2, 2);
-        defer board.deinit();
-        board.setPoint(board.points, .{ .x = 0, .y = 0 }, .black);
-        board.setPoint(board.points, .{ .x = 1, .y = 1 }, .white);
+        defer board.deinit(allocator);
+        board.setPoint(&board.points, .{ .x = 0, .y = 0 }, .black);
+        board.setPoint(&board.points, .{ .x = 1, .y = 1 }, .white);
 
         try std.testing.expectEqual([2]u16{ 1, 1 }, board.getScores());
     }
@@ -193,7 +210,7 @@ fn getOwner(
     var owner = self.getPoint(self.copy, coord);
     if (owner.isColour()) return owner;
 
-    self.setPoint(self.copy, coord, .debug);
+    self.setPoint(&self.copy, coord, .debug);
 
     var buffer: [4]Vec2 = undefined;
     for (self.getAdjacents(coord, &buffer)) |adj_coord|
@@ -206,7 +223,7 @@ fn getOwner(
 }
 
 fn fillTerritory(self: *Board, coord: Vec2, colour: Colour) void {
-    self.setPoint(self.copy, coord, colour.toPoint());
+    self.setPoint(&self.copy, coord, colour.toPoint());
 
     var buffer: [4]Vec2 = undefined;
     for (self.getAdjacents(coord, &buffer)) |adj_coord| {
@@ -222,7 +239,7 @@ fn floodFillCheck(self: *Board, coord: Vec2) bool {
     const point = self.getPoint(self.copy, coord);
     if (point == .empty) return false;
 
-    self.setPoint(self.copy, coord, point.getOpposite());
+    self.setPoint(&self.copy, coord, point.getOpposite());
 
     var buffer: [4]Vec2 = undefined;
     for (self.getAdjacents(coord, &buffer)) |adj_coord|
@@ -237,23 +254,23 @@ test "floodFillCheck" {
     const allocator = testing.allocator;
     {
         var a = try Board.init(allocator, 1, 1);
-        defer a.deinit();
-        a.setPoint(a.points, .{ .x = 0, .y = 0 }, .black);
+        defer a.deinit(allocator);
+        a.setPoint(&a.points, .{ .x = 0, .y = 0 }, .black);
         a.syncCopy();
         try testing.expect(a.floodFillCheck(.{ .x = 0, .y = 0 }));
     }
     {
         var a = try Board.init(allocator, 2, 1);
-        defer a.deinit();
-        a.setPoint(a.points, .{ .x = 0, .y = 0 }, .black);
+        defer a.deinit(allocator);
+        a.setPoint(&a.points, .{ .x = 0, .y = 0 }, .black);
         a.syncCopy();
         try testing.expect(!a.floodFillCheck(.{ .x = 0, .y = 0 }));
     }
     {
         var a = try Board.init(allocator, 2, 1);
-        defer a.deinit();
-        a.setPoint(a.points, .{ .x = 0, .y = 0 }, .black);
-        a.setPoint(a.points, .{ .x = 1, .y = 0 }, .white);
+        defer a.deinit(allocator);
+        a.setPoint(&a.points, .{ .x = 0, .y = 0 }, .black);
+        a.setPoint(&a.points, .{ .x = 1, .y = 0 }, .white);
         a.syncCopy();
         try testing.expect(a.floodFillCheck(.{ .x = 0, .y = 0 }));
     }
@@ -261,7 +278,7 @@ test "floodFillCheck" {
 
 fn captureGroup(self: *Board, coord: Vec2) void {
     const point = self.getPoint(self.points, coord);
-    self.setPoint(self.points, coord, .empty);
+    self.setPoint(&self.points, coord, .empty);
 
     var buffer: [4]Vec2 = undefined;
     for (self.getAdjacents(coord, &buffer)) |adj_coord|
@@ -273,41 +290,38 @@ test "captureGroup" {
     const allocator = testing.allocator;
     {
         var a = try Board.init(allocator, 1, 1);
-        defer a.deinit();
+        defer a.deinit(allocator);
 
         var b = try Board.init(allocator, 1, 1);
-        defer b.deinit();
-        b.setPoint(b.points, .{ .x = 0, .y = 0 }, .black);
+        defer b.deinit(allocator);
+        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
         b.captureGroup(.{ .x = 0, .y = 0 });
 
-        try expectEqualSlices(u8, a.points.items, b.points.items);
+        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
     }
     {
         var a = try Board.init(allocator, 2, 1);
-        defer a.deinit();
-        a.setPoint(a.points, .{ .x = 1, .y = 0 }, .white);
+        defer a.deinit(allocator);
+        a.setPoint(&a.points, .{ .x = 1, .y = 0 }, .white);
 
         var b = try Board.init(allocator, 2, 1);
-        defer b.deinit();
-        b.setPoint(b.points, .{ .x = 0, .y = 0 }, .black);
-        b.setPoint(b.points, .{ .x = 1, .y = 0 }, .white);
+        defer b.deinit(allocator);
+        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
+        b.setPoint(&b.points, .{ .x = 1, .y = 0 }, .white);
         b.captureGroup(.{ .x = 0, .y = 0 });
 
-        try expectEqualSlices(u8, a.points.items, b.points.items);
+        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
     }
 }
 
 pub inline fn getPoint(self: Board, points: Points, coord: Vec2) Point {
     const index = self.coordToIndex(coord);
-    const offset: u3 = @truncate(index << 1);
-    return @enumFromInt(@as(u2, @truncate(points.items[index >> 2] >> offset)));
+    return @enumFromInt(points.get(index));
 }
 
-inline fn setPoint(self: Board, points: Points, coord: Vec2, point: Point) void {
+inline fn setPoint(self: Board, points: *Points, coord: Vec2, point: Point) void {
     const index = self.coordToIndex(coord);
-    const offset: u3 = @truncate(index << 1);
-    points.items[index >> 2] &= ~@shlExact(@as(u8, 0b11), offset);
-    points.items[index >> 2] |= @shlExact(@as(u8, @intFromEnum(point)), offset);
+    points.set(index, @intFromEnum(point));
 }
 
 // Branchless might be slower?
@@ -330,13 +344,13 @@ fn getAdjacents(self: Board, coord: Vec2, buffer: *[4]Vec2) []Vec2 {
 }
 
 inline fn syncCopy(self: *Board) void {
-    @memcpy(self.copy.items, self.points.items);
+    @memcpy(self.copy.bytes, self.points.bytes);
 }
 
 test "getAdjacents" {
     const allocator = testing.allocator;
     const board = try Board.init(allocator, 1, 1);
-    defer board.deinit();
+    defer board.deinit(allocator);
     var buffer: [4]Vec2 = undefined;
     try expectEqualSlices(Vec2, &.{}, board.getAdjacents(.{ .x = 0, .y = 0 }, &buffer));
 }
