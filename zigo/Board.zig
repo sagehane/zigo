@@ -77,22 +77,21 @@ pub fn placeStone(self: *Board, coord: Vec2, colour: Colour) BoardError!void {
     const point = colour.toPoint();
     self.setPoint(&self.points, coord, point);
 
-    self.syncCopy();
     var buffer: [4]Vec2 = undefined;
     const adjacents = self.getAdjacents(coord, &buffer);
 
-    var capture_flag: u4 = 0;
-    for (adjacents, 0..) |adj_coord, i| {
-        if (self.getPoint(self.copy, adj_coord) == point.getOpposite() and
-            self.floodFillCheck(adj_coord))
-            capture_flag |= @shlExact(@as(u4, 1), @intCast(i));
+    var captured = false;
+    for (adjacents) |adj_coord| {
+        if (self.getPoint(self.points, adj_coord) == point.getOpposite()) {
+            self.syncCopy();
+            if (self.floodFillCheck(adj_coord)) {
+                self.captureGroup(adj_coord);
+                captured = true;
+            }
+        }
     }
 
-    if (capture_flag != 0) {
-        for (adjacents, 0..) |adj_coord, i|
-            if (capture_flag & @shlExact(@as(u4, 1), @intCast(i)) != 0)
-                self.captureGroup(adj_coord);
-    } else {
+    if (!captured) {
         self.syncCopy();
         if (self.floodFillCheck(coord))
             self.captureGroup(coord);
@@ -137,6 +136,26 @@ test "placeStone" {
         defer b.deinit(allocator);
         b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
         try b.placeStone(.{ .x = 1, .y = 0 }, .white);
+
+        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
+    }
+
+    // Bug from revisions ce7fe03 and earlier
+    {
+        var a = try Board.init(allocator, 3, 2);
+        defer a.deinit(allocator);
+        a.setPoint(&a.points, .{ .x = 0, .y = 0 }, .black);
+        a.setPoint(&a.points, .{ .x = 1, .y = 0 }, .white);
+        a.setPoint(&a.points, .{ .x = 1, .y = 1 }, .white);
+        a.setPoint(&a.points, .{ .x = 2, .y = 1 }, .white);
+
+        var b = try Board.init(allocator, 3, 2);
+        defer b.deinit(allocator);
+        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
+        b.setPoint(&b.points, .{ .x = 1, .y = 0 }, .white);
+        b.setPoint(&b.points, .{ .x = 1, .y = 1 }, .white);
+        b.setPoint(&b.points, .{ .x = 2, .y = 1 }, .white);
+        try b.placeStone(.{ .x = 2, .y = 0 }, .black);
 
         try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
     }
