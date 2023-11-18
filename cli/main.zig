@@ -96,7 +96,7 @@ fn handleInput(game: *Game, input: []const u8, writer: anytype) !void {
             if (y != 0) {
                 const coord = .{ .x = std.ascii.toUpper(arg[0]) - 'A', .y = y - 1 };
 
-                if (!game.board.inRange(coord))
+                if (!game.board.isValidCoord(coord))
                     try writer.writeAll("\nInvalid coordinates!\n")
                 else {
                     game.play(coord) catch |err| {

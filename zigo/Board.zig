@@ -36,6 +36,43 @@ pub const Points = struct {
         self.bytes[index >> 2] &= ~@shlExact(@as(u8, 0b11), offset);
         self.bytes[index >> 2] |= @shlExact(@as(u8, point), offset);
     }
+
+    // TODO: Consider using some buffer.
+    // TODO: Consider supporting bigger widths.
+    pub fn printAscii(self: Points, dimensions: Vec2, writer: anytype) !void {
+        const width = dimensions.x;
+        const height = dimensions.y;
+
+        assert(width <= 26);
+
+        const pad = std.math.log10(height);
+        const pad_str = (" " ** 4)[0 .. pad + 2];
+
+        try writer.writeAll(pad_str);
+        for (0..width) |i| {
+            try writer.print(" {c}", .{'A' + @as(u8, @intCast(i))});
+        }
+        try writer.writeAll("\n");
+
+        for (0..height) |i| {
+            const y = height - @as(u8, @intCast(i)) - 1;
+            const len = pad - std.math.log10(y + 1);
+
+            try writer.print(" {s}{d}", .{ (" " ** 2)[0..len], y + 1 });
+            for (0..width) |x| {
+                const index = @as(u16, width) * y + @as(u16, @intCast(x));
+                const point: Point = @enumFromInt(self.get(index));
+                try writer.print(" {c}", .{point.toChar()});
+            }
+            try writer.print(" {s}{d}\n", .{ (" " ** 2)[0..len], y + 1 });
+        }
+
+        try writer.writeAll(pad_str);
+        for (0..width) |i| {
+            try writer.print(" {c}", .{'A' + @as(u8, @intCast(i))});
+        }
+        try writer.writeAll("\n");
+    }
 };
 
 width: u8,
@@ -61,31 +98,33 @@ pub fn init(allocator: Allocator, width: u8, height: u8) error{OutOfMemory}!Boar
     };
 }
 
-pub fn deinit(self: Board, allocator: Allocator) void {
+pub fn deinit(self: *Board, allocator: Allocator) void {
     allocator.free(self.points.bytes);
     allocator.free(self.copy.bytes);
 }
 
-pub inline fn getLength(self: Board) u16 {
+pub fn getLength(self: Board) u16 {
     return @as(u16, self.width) * self.height;
 }
 
 pub fn placeStone(self: *Board, coord: Vec2, colour: Colour) BoardError!void {
-    if (self.getPoint(self.points, coord).isColour())
+    if (self.getPoint(coord).isColour())
         return error.AlreadyOccupied;
 
     const point = colour.toPoint();
-    self.setPoint(&self.points, coord, point);
+    self.setPoint(coord, point);
 
     var buffer: [4]Vec2 = undefined;
     const adjacents = self.getAdjacents(coord, &buffer);
 
+    // TODO: Explore the possibility of checking for dead groups and removing
+    // them concurrently?
     var captured = false;
     for (adjacents) |adj_coord| {
-        if (self.getPoint(self.points, adj_coord) == point.getOpposite()) {
+        if (self.getPoint(adj_coord) == point.getOpposite()) {
             self.syncCopy();
-            if (self.floodFillCheck(adj_coord)) {
-                self.captureGroup(adj_coord);
+            if (!self.hasLiberty(adj_coord)) {
+                self.removeGroup(adj_coord);
                 captured = true;
             }
         }
@@ -93,8 +132,8 @@ pub fn placeStone(self: *Board, coord: Vec2, colour: Colour) BoardError!void {
 
     if (!captured) {
         self.syncCopy();
-        if (self.floodFillCheck(coord))
-            self.captureGroup(coord);
+        if (!self.hasLiberty(coord))
+            self.removeGroup(coord);
     }
 }
 
@@ -120,7 +159,7 @@ test "placeStone" {
 
         var b = try Board.init(allocator, 2, 1);
         defer b.deinit(allocator);
-        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
+        b.setPoint(.{ .x = 0, .y = 0 }, .black);
         try b.placeStone(.{ .x = 1, .y = 0 }, .black);
 
         try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
@@ -130,11 +169,11 @@ test "placeStone" {
     {
         var a = try Board.init(allocator, 2, 1);
         defer a.deinit(allocator);
-        a.setPoint(&a.points, .{ .x = 1, .y = 0 }, .white);
+        a.setPoint(.{ .x = 1, .y = 0 }, .white);
 
         var b = try Board.init(allocator, 2, 1);
         defer b.deinit(allocator);
-        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
+        b.setPoint(.{ .x = 0, .y = 0 }, .black);
         try b.placeStone(.{ .x = 1, .y = 0 }, .white);
 
         try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
@@ -144,17 +183,17 @@ test "placeStone" {
     {
         var a = try Board.init(allocator, 3, 2);
         defer a.deinit(allocator);
-        a.setPoint(&a.points, .{ .x = 0, .y = 0 }, .black);
-        a.setPoint(&a.points, .{ .x = 1, .y = 0 }, .white);
-        a.setPoint(&a.points, .{ .x = 1, .y = 1 }, .white);
-        a.setPoint(&a.points, .{ .x = 2, .y = 1 }, .white);
+        a.setPoint(.{ .x = 0, .y = 0 }, .black);
+        a.setPoint(.{ .x = 1, .y = 0 }, .white);
+        a.setPoint(.{ .x = 1, .y = 1 }, .white);
+        a.setPoint(.{ .x = 2, .y = 1 }, .white);
 
         var b = try Board.init(allocator, 3, 2);
         defer b.deinit(allocator);
-        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
-        b.setPoint(&b.points, .{ .x = 1, .y = 0 }, .white);
-        b.setPoint(&b.points, .{ .x = 1, .y = 1 }, .white);
-        b.setPoint(&b.points, .{ .x = 2, .y = 1 }, .white);
+        b.setPoint(.{ .x = 0, .y = 0 }, .black);
+        b.setPoint(.{ .x = 1, .y = 0 }, .white);
+        b.setPoint(.{ .x = 1, .y = 1 }, .white);
+        b.setPoint(.{ .x = 2, .y = 1 }, .white);
         try b.placeStone(.{ .x = 2, .y = 0 }, .black);
 
         try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
@@ -193,15 +232,15 @@ test "getScores" {
     {
         var board = try Board.init(allocator, 2, 1);
         defer board.deinit(allocator);
-        board.setPoint(&board.points, .{ .x = 0, .y = 0 }, .black);
+        board.setPoint(.{ .x = 0, .y = 0 }, .black);
 
         try std.testing.expectEqual([2]u16{ 2, 0 }, board.getScores());
     }
     {
         var board = try Board.init(allocator, 2, 2);
         defer board.deinit(allocator);
-        board.setPoint(&board.points, .{ .x = 0, .y = 0 }, .black);
-        board.setPoint(&board.points, .{ .x = 1, .y = 1 }, .white);
+        board.setPoint(.{ .x = 0, .y = 0 }, .black);
+        board.setPoint(.{ .x = 1, .y = 1 }, .white);
 
         try std.testing.expectEqual([2]u16{ 1, 1 }, board.getScores());
     }
@@ -213,7 +252,7 @@ fn getTerritory(self: *Board) void {
 
     for (0..self.width) |x| for (0..self.height) |y| {
         const coord = Vec2{ .x = @intCast(x), .y = @intCast(y) };
-        if (self.getPoint(self.copy, coord) != .empty) continue;
+        if (self.getPointCopy(coord) != .empty) continue;
 
         const owner = self.getOwner(coord);
         if (owner.isColour())
@@ -229,14 +268,14 @@ fn getOwner(
     self: *Board,
     coord: Vec2,
 ) Point {
-    var owner = self.getPoint(self.copy, coord);
+    var owner = self.getPointCopy(coord);
     if (owner.isColour()) return owner;
 
-    self.setPoint(&self.copy, coord, .debug);
+    self.setPointCopy(coord, .debug);
 
     var buffer: [4]Vec2 = undefined;
     for (self.getAdjacents(coord, &buffer)) |adj_coord|
-        if (self.getPoint(self.copy, adj_coord) != .debug) {
+        if (self.getPointCopy(adj_coord) != .debug) {
             const adj_owner = self.getOwner(adj_coord);
             owner = @enumFromInt(@intFromEnum(owner) | @intFromEnum(adj_owner));
         };
@@ -245,11 +284,11 @@ fn getOwner(
 }
 
 fn fillTerritory(self: *Board, coord: Vec2, colour: Colour) void {
-    self.setPoint(&self.copy, coord, colour.toPoint());
+    self.setPointCopy(coord, colour.toPoint());
 
     var buffer: [4]Vec2 = undefined;
     for (self.getAdjacents(coord, &buffer)) |adj_coord| {
-        if (self.getPoint(self.copy, adj_coord) == .debug)
+        if (self.getPointCopy(adj_coord) == .debug)
             self.fillTerritory(adj_coord, colour);
     }
 }
@@ -257,58 +296,59 @@ fn fillTerritory(self: *Board, coord: Vec2, colour: Colour) void {
 // TODO: Look into scanline
 /// Returns `true` if the stones are dead.
 /// `syncCopy` must be called before calling this function.
-fn floodFillCheck(self: *Board, coord: Vec2) bool {
-    const point = self.getPoint(self.copy, coord);
-    if (point == .empty) return false;
+fn hasLiberty(self: *Board, coord: Vec2) bool {
+    const point = self.getPointCopy(coord);
 
-    self.setPoint(&self.copy, coord, point.getOpposite());
+    self.setPointCopy(coord, point.getOpposite());
 
     var buffer: [4]Vec2 = undefined;
-    for (self.getAdjacents(coord, &buffer)) |adj_coord|
-        if (self.getPoint(self.copy, adj_coord) != point.getOpposite() and
-            !self.floodFillCheck(adj_coord))
-            return false;
+    for (self.getAdjacents(coord, &buffer)) |adj_coord| {
+        const adj_point = self.getPointCopy(adj_coord);
+        if (adj_point == .empty or
+            adj_point == point and self.hasLiberty(adj_coord))
+            return true;
+    }
 
-    return true;
+    return false;
 }
 
-test "floodFillCheck" {
+test "hasLiberty" {
     const allocator = testing.allocator;
     {
         var a = try Board.init(allocator, 1, 1);
         defer a.deinit(allocator);
-        a.setPoint(&a.points, .{ .x = 0, .y = 0 }, .black);
+        a.setPoint(.{ .x = 0, .y = 0 }, .black);
         a.syncCopy();
-        try testing.expect(a.floodFillCheck(.{ .x = 0, .y = 0 }));
+        try testing.expect(!a.hasLiberty(.{ .x = 0, .y = 0 }));
     }
     {
         var a = try Board.init(allocator, 2, 1);
         defer a.deinit(allocator);
-        a.setPoint(&a.points, .{ .x = 0, .y = 0 }, .black);
+        a.setPoint(.{ .x = 0, .y = 0 }, .black);
         a.syncCopy();
-        try testing.expect(!a.floodFillCheck(.{ .x = 0, .y = 0 }));
+        try testing.expect(a.hasLiberty(.{ .x = 0, .y = 0 }));
     }
     {
         var a = try Board.init(allocator, 2, 1);
         defer a.deinit(allocator);
-        a.setPoint(&a.points, .{ .x = 0, .y = 0 }, .black);
-        a.setPoint(&a.points, .{ .x = 1, .y = 0 }, .white);
+        a.setPoint(.{ .x = 0, .y = 0 }, .black);
+        a.setPoint(.{ .x = 1, .y = 0 }, .white);
         a.syncCopy();
-        try testing.expect(a.floodFillCheck(.{ .x = 0, .y = 0 }));
+        try testing.expect(!a.hasLiberty(.{ .x = 0, .y = 0 }));
     }
 }
 
-fn captureGroup(self: *Board, coord: Vec2) void {
-    const point = self.getPoint(self.points, coord);
-    self.setPoint(&self.points, coord, .empty);
+fn removeGroup(self: *Board, coord: Vec2) void {
+    const point = self.getPoint(coord);
+    self.setPoint(coord, .empty);
 
     var buffer: [4]Vec2 = undefined;
     for (self.getAdjacents(coord, &buffer)) |adj_coord|
-        if (self.getPoint(self.points, adj_coord) == point)
-            self.captureGroup(adj_coord);
+        if (self.getPoint(adj_coord) == point)
+            self.removeGroup(adj_coord);
 }
 
-test "captureGroup" {
+test "removeGroup" {
     const allocator = testing.allocator;
     {
         var a = try Board.init(allocator, 1, 1);
@@ -316,34 +356,44 @@ test "captureGroup" {
 
         var b = try Board.init(allocator, 1, 1);
         defer b.deinit(allocator);
-        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
-        b.captureGroup(.{ .x = 0, .y = 0 });
+        b.setPoint(.{ .x = 0, .y = 0 }, .black);
+        b.removeGroup(.{ .x = 0, .y = 0 });
 
         try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
     }
     {
         var a = try Board.init(allocator, 2, 1);
         defer a.deinit(allocator);
-        a.setPoint(&a.points, .{ .x = 1, .y = 0 }, .white);
+        a.setPoint(.{ .x = 1, .y = 0 }, .white);
 
         var b = try Board.init(allocator, 2, 1);
         defer b.deinit(allocator);
-        b.setPoint(&b.points, .{ .x = 0, .y = 0 }, .black);
-        b.setPoint(&b.points, .{ .x = 1, .y = 0 }, .white);
-        b.captureGroup(.{ .x = 0, .y = 0 });
+        b.setPoint(.{ .x = 0, .y = 0 }, .black);
+        b.setPoint(.{ .x = 1, .y = 0 }, .white);
+        b.removeGroup(.{ .x = 0, .y = 0 });
 
         try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
     }
 }
 
-pub inline fn getPoint(self: Board, points: Points, coord: Vec2) Point {
+pub fn getPoint(self: Board, coord: Vec2) Point {
     const index = self.coordToIndex(coord);
-    return @enumFromInt(points.get(index));
+    return @enumFromInt(self.points.get(index));
 }
 
-inline fn setPoint(self: Board, points: *Points, coord: Vec2, point: Point) void {
+fn getPointCopy(self: Board, coord: Vec2) Point {
     const index = self.coordToIndex(coord);
-    points.set(index, @intFromEnum(point));
+    return @enumFromInt(self.copy.get(index));
+}
+
+fn setPoint(self: *Board, coord: Vec2, point: Point) void {
+    const index = self.coordToIndex(coord);
+    self.points.set(index, @intFromEnum(point));
+}
+
+fn setPointCopy(self: *Board, coord: Vec2, point: Point) void {
+    const index = self.coordToIndex(coord);
+    self.copy.set(index, @intFromEnum(point));
 }
 
 // Branchless might be slower?
@@ -351,70 +401,40 @@ fn getAdjacents(self: Board, coord: Vec2, buffer: *[4]Vec2) []Vec2 {
     var i: u8 = 0;
 
     buffer[i] = .{ .x = coord.x -% 1, .y = coord.y };
-    i += @intFromBool(coord.x != 0);
-
+    if (coord.x -% 1 < self.width) i += 1;
     buffer[i] = .{ .x = coord.x + 1, .y = coord.y };
-    i += @intFromBool(coord.x != self.width - 1);
-
+    if (coord.x + 1 < self.width) i += 1;
     buffer[i] = .{ .x = coord.x, .y = coord.y -% 1 };
-    i += @intFromBool(coord.y != 0);
-
+    if (coord.y -% 1 < self.height) i += 1;
     buffer[i] = .{ .x = coord.x, .y = coord.y + 1 };
-    i += @intFromBool(coord.y != self.height - 1);
+    if (coord.y + 1 < self.height) i += 1;
 
     return buffer[0..i];
 }
 
-inline fn syncCopy(self: *Board) void {
+fn syncCopy(self: *Board) void {
     @memcpy(self.copy.bytes, self.points.bytes);
 }
 
 test "getAdjacents" {
     const allocator = testing.allocator;
-    const board = try Board.init(allocator, 1, 1);
+    var board = try Board.init(allocator, 1, 1);
     defer board.deinit(allocator);
     var buffer: [4]Vec2 = undefined;
     try expectEqualSlices(Vec2, &.{}, board.getAdjacents(.{ .x = 0, .y = 0 }, &buffer));
 }
 
-pub inline fn inRange(self: Board, coord: Vec2) bool {
-    return (self.width > coord.x and self.height > coord.y);
+pub fn isValidCoord(self: Board, coord: Vec2) bool {
+    return (coord.x < self.width and coord.y < self.height);
 }
 
-inline fn coordToIndex(self: Board, coord: Vec2) u16 {
-    assert(self.inRange(coord));
+fn coordToIndex(self: Board, coord: Vec2) u16 {
+    assert(self.isValidCoord(coord));
     return @as(u16, self.width) * coord.y + coord.x;
 }
 
 // TODO: Consider using some buffer.
 // TODO: Consider supporting bigger widths.
 pub fn printAscii(self: Board, points: Points, writer: anytype) !void {
-    assert(self.width <= 26);
-
-    const pad = std.math.log10(self.height);
-    const pad_str = (" " ** 4)[0 .. pad + 2];
-
-    try writer.writeAll(pad_str);
-    for (0..self.width) |i| {
-        try writer.print(" {c}", .{'A' + @as(u8, @intCast(i))});
-    }
-    try writer.writeAll("\n");
-
-    for (0..self.height) |i| {
-        const y = self.height - @as(u8, @intCast(i)) - 1;
-        const len = pad - std.math.log10(y + 1);
-
-        try writer.print(" {s}{d}", .{ (" " ** 2)[0..len], y + 1 });
-        for (0..self.width) |x| {
-            const point = self.getPoint(points, .{ .x = @intCast(x), .y = y });
-            try writer.print(" {c}", .{point.toChar()});
-        }
-        try writer.print(" {s}{d}\n", .{ (" " ** 2)[0..len], y + 1 });
-    }
-
-    try writer.writeAll(pad_str);
-    for (0..self.width) |i| {
-        try writer.print(" {c}", .{'A' + @as(u8, @intCast(i))});
-    }
-    try writer.writeAll("\n");
+    return points.printAscii(.{ .x = self.width, .y = self.height }, writer);
 }
