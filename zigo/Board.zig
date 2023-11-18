@@ -23,7 +23,7 @@ pub const Points = struct {
     bytes: []u8,
 
     pub inline fn bytesRequired(len: u16) u16 {
-        return (@bitSizeOf(u2) * len + 7) >> 3;
+        return @intCast((@as(u32, @bitSizeOf(u2)) * len + 7) >> 3);
     }
 
     pub inline fn get(self: Points, index: u16) u2 {
@@ -75,11 +75,15 @@ pub const Points = struct {
     }
 };
 
+const Stack = std.ArrayListUnmanaged(Vec2);
+
 width: u8,
 height: u8,
 points: Points,
-/// Used for checking captures and territory counting
+/// Used for checking captures and territory counting.
 copy: Points,
+/// A stack of coordinates for floodfilling.
+stack: Stack,
 
 pub fn init(allocator: Allocator, width: u8, height: u8) error{OutOfMemory}!Board {
     assert(width != 0 and height != 0);
@@ -95,12 +99,14 @@ pub fn init(allocator: Allocator, width: u8, height: u8) error{OutOfMemory}!Boar
         .height = height,
         .points = .{ .bytes = bytes },
         .copy = .{ .bytes = try allocator.dupe(u8, bytes) },
+        .stack = try Stack.initCapacity(allocator, length),
     };
 }
 
 pub fn deinit(self: *Board, allocator: Allocator) void {
     allocator.free(self.points.bytes);
     allocator.free(self.copy.bytes);
+    self.stack.deinit(allocator);
 }
 
 pub fn getLength(self: Board) u16 {
@@ -260,7 +266,7 @@ fn getTerritory(self: *Board) void {
     };
 }
 
-/// Must be called on a coordinate containing an empty point.
+/// Must be called on a coordinate containing `.empty`.
 /// Converts `.empty` into `.debug` and returns owner of the territory.
 /// Returns `.empty` if neither players are adjacent to the territory.
 /// Returns `.debug` if both players are adjacent to the territory.
@@ -269,44 +275,80 @@ fn getOwner(
     coord: Vec2,
 ) Point {
     var owner = self.getPointCopy(coord);
-    if (owner.isColour()) return owner;
+    assert(owner == .empty);
 
     self.setPointCopy(coord, .debug);
+    self.stack.appendAssumeCapacity(coord);
 
     var buffer: [4]Vec2 = undefined;
-    for (self.getAdjacents(coord, &buffer)) |adj_coord|
-        if (self.getPointCopy(adj_coord) != .debug) {
-            const adj_owner = self.getOwner(adj_coord);
-            owner = @enumFromInt(@intFromEnum(owner) | @intFromEnum(adj_owner));
-        };
+    while (self.stack.popOrNull()) |next_coord| {
+        for (self.getAdjacents(next_coord, &buffer)) |adj_coord| {
+            const adj_point = self.getPointCopy(adj_coord);
+
+            if (adj_point == .empty) {
+                self.setPointCopy(adj_coord, .debug);
+                self.stack.appendAssumeCapacity(adj_coord);
+                continue;
+            }
+
+            if (adj_point != .debug) {
+                owner = @enumFromInt(@intFromEnum(owner) | @intFromEnum(adj_point));
+            }
+        }
+    }
 
     return owner;
 }
 
+/// Must be called on a coordinate containing `.debug`.
 fn fillTerritory(self: *Board, coord: Vec2, colour: Colour) void {
-    self.setPointCopy(coord, colour.toPoint());
+    const point = self.getPointCopy(coord);
+    assert(point == .debug);
+
+    const to = colour.toPoint();
+
+    self.setPointCopy(coord, to);
+    self.stack.appendAssumeCapacity(coord);
 
     var buffer: [4]Vec2 = undefined;
-    for (self.getAdjacents(coord, &buffer)) |adj_coord| {
-        if (self.getPointCopy(adj_coord) == .debug)
-            self.fillTerritory(adj_coord, colour);
+    while (self.stack.popOrNull()) |next_coord| {
+        for (self.getAdjacents(next_coord, &buffer)) |adj_coord| {
+            const adj_point = self.getPointCopy(adj_coord);
+
+            if (adj_point == point) {
+                self.setPointCopy(adj_coord, to);
+                self.stack.appendAssumeCapacity(adj_coord);
+            }
+        }
     }
 }
 
 // TODO: Look into scanline
 /// Returns `true` if the stones are dead.
 /// `syncCopy` must be called before calling this function.
+/// Must be called on a coordinate containing a stone.
 fn hasLiberty(self: *Board, coord: Vec2) bool {
     const point = self.getPointCopy(coord);
+    assert(point.isColour());
 
     self.setPointCopy(coord, point.getOpposite());
+    self.stack.appendAssumeCapacity(coord);
 
     var buffer: [4]Vec2 = undefined;
-    for (self.getAdjacents(coord, &buffer)) |adj_coord| {
-        const adj_point = self.getPointCopy(adj_coord);
-        if (adj_point == .empty or
-            adj_point == point and self.hasLiberty(adj_coord))
-            return true;
+    while (self.stack.popOrNull()) |next_coord| {
+        for (self.getAdjacents(next_coord, &buffer)) |adj_coord| {
+            const adj_point = self.getPointCopy(adj_coord);
+
+            if (adj_point == .empty) {
+                self.stack.items.len = 0;
+                return true;
+            }
+
+            if (adj_point == point) {
+                self.setPointCopy(adj_coord, point.getOpposite());
+                self.stack.appendAssumeCapacity(adj_coord);
+            }
+        }
     }
 
     return false;
@@ -338,14 +380,25 @@ test "hasLiberty" {
     }
 }
 
+/// Must be called on a coordinate containing a stone.
 fn removeGroup(self: *Board, coord: Vec2) void {
     const point = self.getPoint(coord);
+    assert(point.isColour());
+
     self.setPoint(coord, .empty);
+    self.stack.appendAssumeCapacity(coord);
 
     var buffer: [4]Vec2 = undefined;
-    for (self.getAdjacents(coord, &buffer)) |adj_coord|
-        if (self.getPoint(adj_coord) == point)
-            self.removeGroup(adj_coord);
+    while (self.stack.popOrNull()) |next_coord| {
+        for (self.getAdjacents(next_coord, &buffer)) |adj_coord| {
+            const adj_point = self.getPoint(adj_coord);
+
+            if (adj_point == point) {
+                self.setPoint(adj_coord, .empty);
+                self.stack.appendAssumeCapacity(adj_coord);
+            }
+        }
+    }
 }
 
 test "removeGroup" {
