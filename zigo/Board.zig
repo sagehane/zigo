@@ -20,21 +20,48 @@ const Board = @This();
 const BoardError = error{AlreadyOccupied};
 
 pub const Points = struct {
-    bytes: []u8,
+    pub const MaskInt = usize;
 
-    pub inline fn bytesRequired(len: u16) u16 {
-        return @intCast((@as(u32, @bitSizeOf(u2)) * len + 7) >> 3);
+    masks: []MaskInt,
+
+    const t_bit = @bitSizeOf(MaskInt);
+    const t_pow = @ctz(@as(usize, t_bit));
+    const p_pow = @ctz(@as(usize, @bitSizeOf(Point)));
+    const Offset = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = t_pow } });
+
+    comptime {
+        assert(std.math.isPowerOfTwo(@bitSizeOf(Point)));
+        assert(p_pow < t_pow);
     }
 
-    pub inline fn get(self: Points, index: u16) u2 {
-        const offset: u3 = @truncate(index << 1);
-        return @truncate(self.bytes[index >> 2] >> offset);
+    pub fn masksRequired(len: u16) u16 {
+        const total_bits = @shlExact(@as(u32, len), p_pow);
+        const total_masks = (total_bits + t_bit - 1) >> t_pow;
+        return @intCast(total_masks);
     }
 
-    inline fn set(self: *Points, index: u16, point: u2) void {
-        const offset: u3 = @truncate(index << 1);
-        self.bytes[index >> 2] &= ~@shlExact(@as(u8, 0b11), offset);
-        self.bytes[index >> 2] |= @shlExact(@as(u8, point), offset);
+    pub fn get(self: Points, index: u16) Point {
+        const offset = getShiftOffset(index);
+        const int: u2 = @truncate(self.masks[getMaskIndex(index)] >> offset);
+        return @enumFromInt(int);
+    }
+
+    fn set(self: *Points, index: u16, point: Point) void {
+        const offset = getShiftOffset(index);
+        const mask_index = getMaskIndex(index);
+
+        var mask = self.masks[mask_index];
+        mask &= ~@shlExact(@as(MaskInt, 0b11), offset);
+        mask |= @shlExact(@as(MaskInt, @intFromEnum(point)), offset);
+        self.masks[mask_index] = mask;
+    }
+
+    fn getMaskIndex(index: u16) u16 {
+        return index >> (t_pow - p_pow);
+    }
+
+    fn getShiftOffset(index: u16) Offset {
+        return @truncate(index << p_pow);
     }
 
     // TODO: Consider using some buffer.
@@ -61,8 +88,7 @@ pub const Points = struct {
             try writer.print(" {s}{d}", .{ (" " ** 2)[0..len], y + 1 });
             for (0..width) |x| {
                 const index = @as(u16, width) * y + @as(u16, @intCast(x));
-                const point: Point = @enumFromInt(self.get(index));
-                try writer.print(" {c}", .{point.toChar()});
+                try writer.print(" {c}", .{self.get(index).toChar()});
             }
             try writer.print(" {s}{d}\n", .{ (" " ** 2)[0..len], y + 1 });
         }
@@ -89,23 +115,23 @@ pub fn init(allocator: Allocator, width: u8, height: u8) error{OutOfMemory}!Boar
     assert(width != 0 and height != 0);
 
     const length: u16 = @as(u16, width) * height;
-    const packed_length = Points.bytesRequired(length);
+    const mask_length = Points.masksRequired(length);
 
-    const bytes = try allocator.alloc(u8, packed_length);
+    const bytes = try allocator.alloc(Points.MaskInt, mask_length);
     @memset(bytes, 0);
 
     return .{
         .width = width,
         .height = height,
-        .points = .{ .bytes = bytes },
-        .copy = .{ .bytes = try allocator.dupe(u8, bytes) },
+        .points = .{ .masks = bytes },
+        .copy = .{ .masks = try allocator.dupe(Points.MaskInt, bytes) },
         .stack = try Stack.initCapacity(allocator, length),
     };
 }
 
 pub fn deinit(self: *Board, allocator: Allocator) void {
-    allocator.free(self.points.bytes);
-    allocator.free(self.copy.bytes);
+    allocator.free(self.points.masks);
+    allocator.free(self.copy.masks);
     self.stack.deinit(allocator);
 }
 
@@ -212,7 +238,7 @@ pub fn getScores(self: *Board) [2]u16 {
     var scores = [2]u16{ 0, 0 };
 
     for (0..self.getLength()) |i| {
-        const point: Point = @enumFromInt(self.copy.get(@intCast(i)));
+        const point: Point = self.copy.get(@intCast(i));
 
         if (!point.isColour()) continue;
         scores[@intFromEnum(point.toColour())] += 1;
@@ -431,22 +457,22 @@ test "removeGroup" {
 
 pub fn getPoint(self: Board, coord: Vec2) Point {
     const index = self.coordToIndex(coord);
-    return @enumFromInt(self.points.get(index));
+    return self.points.get(index);
 }
 
 fn getPointCopy(self: Board, coord: Vec2) Point {
     const index = self.coordToIndex(coord);
-    return @enumFromInt(self.copy.get(index));
+    return self.copy.get(index);
 }
 
 fn setPoint(self: *Board, coord: Vec2, point: Point) void {
     const index = self.coordToIndex(coord);
-    self.points.set(index, @intFromEnum(point));
+    self.points.set(index, point);
 }
 
 fn setPointCopy(self: *Board, coord: Vec2, point: Point) void {
     const index = self.coordToIndex(coord);
-    self.copy.set(index, @intFromEnum(point));
+    self.copy.set(index, point);
 }
 
 // Branchless might be slower?
@@ -466,7 +492,7 @@ fn getAdjacents(self: Board, coord: Vec2, buffer: *[4]Vec2) []Vec2 {
 }
 
 fn syncCopy(self: *Board) void {
-    @memcpy(self.copy.bytes, self.points.bytes);
+    @memcpy(self.copy.masks, self.points.masks);
 }
 
 test "getAdjacents" {
@@ -486,8 +512,6 @@ fn coordToIndex(self: Board, coord: Vec2) u16 {
     return @as(u16, self.width) * coord.y + coord.x;
 }
 
-// TODO: Consider using some buffer.
-// TODO: Consider supporting bigger widths.
 pub fn printAscii(self: Board, points: Points, writer: anytype) !void {
     return points.printAscii(.{ .x = self.width, .y = self.height }, writer);
 }

@@ -46,7 +46,7 @@ const History = struct {
         // Keep iterating while the `index` has previously been reached.
         var i: u16 = 0;
         while (i < board.getLength() - 1) : (i += 1) {
-            const int = board.points.get(i);
+            const int = @intFromEnum(board.points.get(i));
 
             if (self.list.items[index][int] == 0) {
                 self.list.items[index][int] = @intCast(self.list.items.len);
@@ -63,7 +63,7 @@ const History = struct {
             try self.list.appendNTimes(allocator, initial_item, board.getLength() - i - 1);
 
             for (i + 1..board.getLength() - 1) |j| {
-                const int = board.points.get(@intCast(j));
+                const int = @intFromEnum(board.points.get(@intCast(j)));
                 self.list.items[index][int] = index + 1;
                 index += 1;
             }
@@ -71,7 +71,7 @@ const History = struct {
 
         // The last point maps to the mask of players that have reached the
         // particular board state.
-        const int = board.points.get(board.getLength() - 1);
+        const int = @intFromEnum(board.points.get(board.getLength() - 1));
         const player_mask = @shlExact(@as(u2, 1), @intFromEnum(player));
 
         if (self.list.items[index][int] & player_mask != 0)
@@ -116,21 +116,26 @@ pub fn init(allocator: Allocator, width: u8, height: u8, komi: u16) error{OutOfM
         .allocator = allocator,
         .komi = komi,
         .board = board,
-        .backup = .{ .bytes = try allocator.alloc(u8, board.points.bytes.len) },
+        .backup = .{
+            .masks = try allocator.alloc(
+                Points.MaskInt,
+                Points.masksRequired(board.getLength()),
+            ),
+        },
         .history = try History.init(allocator, board, .black),
     };
 }
 
 pub fn deinit(self: *Game) void {
     self.board.deinit(self.allocator);
-    self.allocator.free(self.backup.bytes);
+    self.allocator.free(self.backup.masks);
     self.history.deinit(self.allocator);
 }
 
 pub fn play(self: *Game, coord: Vec2) MoveError!void {
-    @memcpy(self.backup.bytes, self.board.points.bytes);
+    @memcpy(self.backup.masks, self.board.points.masks);
     try self.board.placeStone(coord, self.player);
-    errdefer @memcpy(self.board.points.bytes, self.backup.bytes);
+    errdefer @memcpy(self.board.points.masks, self.backup.masks);
     try self.insertHistory();
     self.player = self.player.getOpposite();
 }
