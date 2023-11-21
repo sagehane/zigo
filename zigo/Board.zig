@@ -183,7 +183,7 @@ test "placeStone" {
         defer b.deinit(allocator);
         try b.placeStone(.{ .x = 0, .y = 0 }, .black);
 
-        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
+        try expectEqualSlices(Points.MaskInt, a.points.masks, b.points.masks);
     }
     {
         var a = try Board.init(allocator, 2, 1);
@@ -194,7 +194,7 @@ test "placeStone" {
         b.setPoint(.{ .x = 0, .y = 0 }, .black);
         try b.placeStone(.{ .x = 1, .y = 0 }, .black);
 
-        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
+        try expectEqualSlices(Points.MaskInt, a.points.masks, b.points.masks);
     }
 
     // capture
@@ -208,7 +208,7 @@ test "placeStone" {
         b.setPoint(.{ .x = 0, .y = 0 }, .black);
         try b.placeStone(.{ .x = 1, .y = 0 }, .white);
 
-        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
+        try expectEqualSlices(Points.MaskInt, a.points.masks, b.points.masks);
     }
 
     // Bug from revisions ce7fe03 and earlier
@@ -228,7 +228,7 @@ test "placeStone" {
         b.setPoint(.{ .x = 2, .y = 1 }, .white);
         try b.placeStone(.{ .x = 2, .y = 0 }, .black);
 
-        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
+        try expectEqualSlices(Points.MaskInt, a.points.masks, b.points.masks);
     }
 }
 
@@ -306,8 +306,8 @@ fn getOwner(
     self.setPointCopy(coord, .debug);
     self.stack.appendAssumeCapacity(coord);
 
-    var buffer: [4]Vec2 = undefined;
     while (self.stack.popOrNull()) |next_coord| {
+        var buffer: [4]Vec2 = undefined;
         for (self.getAdjacents(next_coord, &buffer)) |adj_coord| {
             const adj_point = self.getPointCopy(adj_coord);
 
@@ -336,8 +336,8 @@ fn fillTerritory(self: *Board, coord: Vec2, colour: Colour) void {
     self.setPointCopy(coord, to);
     self.stack.appendAssumeCapacity(coord);
 
-    var buffer: [4]Vec2 = undefined;
     while (self.stack.popOrNull()) |next_coord| {
+        var buffer: [4]Vec2 = undefined;
         for (self.getAdjacents(next_coord, &buffer)) |adj_coord| {
             const adj_point = self.getPointCopy(adj_coord);
 
@@ -360,8 +360,8 @@ fn hasLiberty(self: *Board, coord: Vec2) bool {
     self.setPointCopy(coord, point.getOpposite());
     self.stack.appendAssumeCapacity(coord);
 
-    var buffer: [4]Vec2 = undefined;
     while (self.stack.popOrNull()) |next_coord| {
+        var buffer: [4]Vec2 = undefined;
         for (self.getAdjacents(next_coord, &buffer)) |adj_coord| {
             const adj_point = self.getPointCopy(adj_coord);
 
@@ -414,8 +414,8 @@ fn removeGroup(self: *Board, coord: Vec2) void {
     self.setPoint(coord, .empty);
     self.stack.appendAssumeCapacity(coord);
 
-    var buffer: [4]Vec2 = undefined;
     while (self.stack.popOrNull()) |next_coord| {
+        var buffer: [4]Vec2 = undefined;
         for (self.getAdjacents(next_coord, &buffer)) |adj_coord| {
             const adj_point = self.getPoint(adj_coord);
 
@@ -438,7 +438,7 @@ test "removeGroup" {
         b.setPoint(.{ .x = 0, .y = 0 }, .black);
         b.removeGroup(.{ .x = 0, .y = 0 });
 
-        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
+        try expectEqualSlices(Points.MaskInt, a.points.masks, b.points.masks);
     }
     {
         var a = try Board.init(allocator, 2, 1);
@@ -451,7 +451,7 @@ test "removeGroup" {
         b.setPoint(.{ .x = 1, .y = 0 }, .white);
         b.removeGroup(.{ .x = 0, .y = 0 });
 
-        try expectEqualSlices(u8, a.points.bytes, b.points.bytes);
+        try expectEqualSlices(Points.MaskInt, a.points.masks, b.points.masks);
     }
 }
 
@@ -475,7 +475,6 @@ fn setPointCopy(self: *Board, coord: Vec2, point: Point) void {
     self.copy.set(index, point);
 }
 
-// Branchless might be slower?
 fn getAdjacents(self: Board, coord: Vec2, buffer: *[4]Vec2) []Vec2 {
     var i: u8 = 0;
 
