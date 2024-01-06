@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const zigo = b.addModule("zigo", .{
-        .source_file = .{ .path = "zigo/main.zig" },
+        .root_source_file = .{ .path = "zigo/main.zig" },
     });
 
     const main_tests = b.addTest(.{
@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    cli.addModule("zigo", zigo);
+    cli.root_module.addImport("zigo", zigo);
     b.installArtifact(cli);
 
     const run_cmd = b.addRunArtifact(cli);

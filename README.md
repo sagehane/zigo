@@ -13,7 +13,7 @@ Licensed under [Creative Commons Zero v1.0 Universal](https://spdx.org/licenses/
 
 ### How to build and run:
 
-Get a recent version of Zig (tested on `0.11.0`) and run `zig build run`.
+Get a recent version of Zig (tested on `0.12.0-dev.2014+289ae45c1`) and run `zig build run`.
 
 ### Rules:
 
