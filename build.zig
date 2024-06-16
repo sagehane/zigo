@@ -9,11 +9,11 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const zigo = b.addModule("zigo", .{
-        .root_source_file = .{ .path = "zigo/main.zig" },
+        .root_source_file = b.path("zigo/main.zig"),
     });
 
     const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "zigo/main.zig" },
+        .root_source_file = b.path("zigo/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -24,7 +24,7 @@ pub fn build(b: *std.Build) void {
 
     const cli = b.addExecutable(.{
         .name = "zigo-cli",
-        .root_source_file = .{ .path = "cli/main.zig" },
+        .root_source_file = b.path("cli/main.zig"),
         .target = target,
         .optimize = optimize,
     });
